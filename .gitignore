@@ -4,6 +4,8 @@ current/
 historical/
 output/
 output_*/
+portfolio/
+faang/
 
 # Original holdings files (sensitive data)
 Holdings*.csv

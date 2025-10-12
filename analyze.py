@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import os, time, re
+import os, sys, time, re
 from datetime import date, timedelta
 from typing import List, Dict, Optional, Tuple
 import pandas as pd
@@ -13,10 +13,7 @@ except Exception as e:
 END_DATE = date.today()
 START_DATE = END_DATE - timedelta(days=365*5)
 
-WEIGHTS_CSV = "weights.csv"   # expected columns: Symbol,Weight (or Ticker,Weight)
 BENCH = ["SPY", "QQQ", "DIA", "IWM"]  # SPY=S&P500, QQQ=Nasdaq100, DIA=DJIA, IWM=Russell2000
-OUTDIR = "current"
-os.makedirs(OUTDIR, exist_ok=True)
 
 # Ticker sanitation
 ALLOWED = re.compile(r'^[A-Z][A-Z0-9\.\-]*$')
@@ -129,8 +126,25 @@ def load_weights(path: str) -> pd.Series:
     return wdf.set_index("Ticker")["Weight"]
 
 def main():
+    # Parse command-line arguments
+    if len(sys.argv) < 2:
+        print("Usage: python analyze.py <portfolio.csv>")
+        print("\nExample:")
+        print("  python analyze.py portfolio.csv  # Creates portfolio/ directory")
+        print("  python analyze.py faang.csv      # Creates faang/ directory")
+        sys.exit(1)
+
+    weights_csv = sys.argv[1]
+    if not os.path.exists(weights_csv):
+        raise SystemExit(f"Error: {weights_csv} not found")
+
+    # Derive output directory from CSV filename
+    # e.g., "faang.csv" -> "faang", "portfolio.csv" -> "portfolio"
+    outdir = os.path.splitext(os.path.basename(weights_csv))[0]
+    os.makedirs(outdir, exist_ok=True)
+
     # Load initial weights and build download list
-    weights = load_weights(WEIGHTS_CSV)
+    weights = load_weights(weights_csv)
     tickers = list(weights.index) + BENCH
     print(f"Fetching {len(tickers)} tickers from {START_DATE} to {END_DATE}")
 
@@ -174,7 +188,7 @@ def main():
 
     # Report dropped symbols
     if failed or drop_cov:
-        with open(os.path.join(OUTDIR, "dropped_tickers.txt"), "w") as f:
+        with open(os.path.join(outdir, "dropped_tickers.txt"), "w") as f:
             if failed:
                 f.write("Failed downloads:\n")
                 for t, reason in failed:
@@ -189,7 +203,7 @@ def main():
     if weights_used.empty:
         raise SystemExit("All holdings were dropped due to low coverage or download failure.")
     weights_used = weights_used / weights_used.sum()
-    weights_used.to_csv(os.path.join(OUTDIR, "weights_used.csv"), header=["Weight"])
+    weights_used.to_csv(os.path.join(outdir, "weights_used.csv"), header=["Weight"])
 
     # Build aligned adjusted-close table on the baseline index
     # Include benchmarks as well
@@ -208,7 +222,7 @@ def main():
         aligned = aligned.drop(columns=drop_nan_cols)
         weights_used = weights_used.drop(index=[c for c in drop_nan_cols if c in weights_used.index], errors="ignore")
         weights_used = weights_used / weights_used.sum()
-        weights_used.to_csv(os.path.join(OUTDIR, "weights_used.csv"), header=["Weight"])
+        weights_used.to_csv(os.path.join(outdir, "weights_used.csv"), header=["Weight"])
 
     # Final sanity
     if aligned.shape[1] < 3:
@@ -295,14 +309,14 @@ def main():
     ], columns=["Metric","Value"])
 
     # Exports
-    summary.to_csv(os.path.join(OUTDIR, "summary_stats.csv"), index_label="Category")
-    capture.to_csv(os.path.join(OUTDIR, "capture_stats.csv"), index=False)
+    summary.to_csv(os.path.join(outdir, "summary_stats.csv"), index_label="Category")
+    capture.to_csv(os.path.join(outdir, "capture_stats.csv"), index=False)
 
     cum = (1 + out[["Portfolio_ret","SPY_ret","QQQ_ret","DIA_ret","IWM_ret"]]).cumprod() - 1
-    cum.to_csv(os.path.join(OUTDIR, "cumulative_returns.csv"), index_label="Date")
+    cum.to_csv(os.path.join(outdir, "cumulative_returns.csv"), index_label="Date")
 
-    print(f"Analysis complete. CSV data saved to {OUTDIR}")
-    print("Run visualize.py to generate charts and HTML dashboard.")
+    print(f"Analysis complete. CSV data saved to {outdir}/")
+    print(f"Run: python visualize.py {outdir}")
 
 if __name__ == "__main__":
     main()
