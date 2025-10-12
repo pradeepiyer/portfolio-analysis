@@ -462,7 +462,13 @@ def generate_html_dashboard():
 
     # Add summary stats
     for _, row in summary_df.iterrows():
-        category = row['Category'].replace('_', ' ').title()
+        # Format category: keep ticker symbols in CAPS, title-case the rest
+        category_raw = row['Category'].replace('_', ' ')
+        words = category_raw.split()
+        # Keep benchmark tickers and BOTH in uppercase, title-case everything else
+        formatted_words = [w.upper() if w.upper() in ['SPY', 'QQQ', 'DIA', 'IWM', 'BOTH'] else w.title() for w in words]
+        category = ' '.join(formatted_words)
+
         days = int(row['Days'])
         hit_rate = row['Portfolio_hit_rate_(>=0%)'] * 100
         avg_return = row['Portfolio_avg'] * 100
