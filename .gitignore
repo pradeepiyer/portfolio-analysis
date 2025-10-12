@@ -1,5 +1,7 @@
-# Output directory (analysis results - can be regenerated)
+# Output directories (analysis results - can be regenerated)
 html/
+current/
+historical/
 output/
 output_*/
 
