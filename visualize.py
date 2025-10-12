@@ -316,7 +316,7 @@ def generate_html_dashboard(html_dir):
     # Read data files
     capture_df = pd.read_csv(os.path.join(html_dir, "capture_stats.csv"))
     summary_df = pd.read_csv(os.path.join(html_dir, "summary_stats.csv"))
-    weights_df = pd.read_csv(os.path.join(html_dir, "weights_used.csv"))
+    weights_df = pd.read_csv(os.path.join(html_dir, "weights_used.csv"), index_col=0)
 
     # Extract metadata from summary
     num_positions = len(weights_df)
