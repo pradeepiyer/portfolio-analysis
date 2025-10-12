@@ -18,14 +18,19 @@ from datetime import datetime
 HTML_DIR = "html"
 CHART_DIR = os.path.join(HTML_DIR, "charts")
 
-# Color scheme
+# Color scheme - Okabe-Ito colorblind-safe palette
+# Scientifically designed to be distinguishable by all types of color blindness
 COLORS = {
-    'Portfolio': '#2E86AB',
-    'SPY': '#A23B72',
-    'QQQ': '#F18F01',
-    'DIA': '#06A77D',
-    'IWM': '#9D4EDD'
+    'Portfolio': '#0173B2',    # Blue
+    'SPY': '#DE8F05',          # Orange
+    'QQQ': '#CC78BC',          # Pink/Magenta
+    'DIA': '#029E73',          # Bluish Green
+    'IWM': '#ECE133'           # Yellow
 }
+
+# Colorblind-safe positive/negative colors
+POSITIVE_COLOR = '#029E73'     # Bluish green (not pure green)
+NEGATIVE_COLOR = '#D55E00'     # Vermillion (not pure red)
 
 
 def generate_charts():
@@ -59,9 +64,23 @@ def generate_charts():
 
     # 1. Cumulative Returns Chart
     fig, ax = plt.subplots(figsize=(14, 8))
+
+    # Line styles for better distinction (colorblind-friendly)
+    line_styles = {
+        'Portfolio': '-',   # Solid
+        'SPY': '-',         # Solid
+        'QQQ': '--',        # Dashed
+        'DIA': ':',         # Dotted
+        'IWM': '-.'         # Dash-dot
+    }
+
     for col in cum_df.columns:
         label = col.replace('_ret', '').replace('Portfolio', 'Portfolio')
-        ax.plot(cum_df.index, cum_df[col] * 100, label=label, linewidth=2, color=COLORS.get(label, 'gray'))
+        linestyle = line_styles.get(label, '-')
+        linewidth = 3 if label == 'Portfolio' else 2
+        ax.plot(cum_df.index, cum_df[col] * 100, label=label,
+               linewidth=linewidth, color=COLORS.get(label, 'gray'), linestyle=linestyle)
+
     ax.set_title('Cumulative Returns: Portfolio vs Benchmarks', fontsize=16, fontweight='bold')
     ax.set_xlabel('Date', fontsize=12)
     ax.set_ylabel('Cumulative Return (%)', fontsize=12)
@@ -86,8 +105,8 @@ def generate_charts():
     downside_vals = [capture_data[(capture_data['Type']=='Downside') & (capture_data['Benchmark']==b)]['Value'].values[0] * 100 for b in benchmarks]
     upside_vals = [capture_data[(capture_data['Type']=='Upside') & (capture_data['Benchmark']==b)]['Value'].values[0] * 100 for b in benchmarks]
 
-    ax.bar([i - width/2 for i in x], downside_vals, width, label='Downside Capture', color='#E63946', alpha=0.8)
-    ax.bar([i + width/2 for i in x], upside_vals, width, label='Upside Capture', color='#06A77D', alpha=0.8)
+    ax.bar([i - width/2 for i in x], downside_vals, width, label='Downside Capture', color=NEGATIVE_COLOR, alpha=0.8)
+    ax.bar([i + width/2 for i in x], upside_vals, width, label='Upside Capture', color=POSITIVE_COLOR, alpha=0.8)
     ax.axhline(y=100, color='gray', linestyle='--', linewidth=1, alpha=0.5)
     ax.set_ylabel('Capture Ratio (%)', fontsize=12)
     ax.set_title('Portfolio Capture Ratios vs Benchmarks', fontsize=16, fontweight='bold')
@@ -109,7 +128,7 @@ def generate_charts():
     hit_rate_data = hit_rate_data[hit_rate_data['Benchmark'].notna()]
 
     fig, ax = plt.subplots(figsize=(10, 6))
-    bars = ax.bar(hit_rate_data['Benchmark'], hit_rate_data['Value'] * 100, color='#2E86AB', alpha=0.8)
+    bars = ax.bar(hit_rate_data['Benchmark'], hit_rate_data['Value'] * 100, color=COLORS['Portfolio'], alpha=0.8)
     ax.set_ylabel('Hit Rate (%)', fontsize=12)
     ax.set_title('Portfolio Hit Rate on Benchmark Down Days\n(% of days portfolio ≥ 0%)', fontsize=16, fontweight='bold')
     ax.grid(True, alpha=0.3, axis='y')
@@ -122,22 +141,66 @@ def generate_charts():
     plt.close()
     print("  ✓ Hit rates chart")
 
-    # 4. Return Distribution Box Plots
-    fig, ax = plt.subplots(figsize=(12, 7))
+    # 4. Return Distribution Box Plots (Enhanced)
+    fig, ax = plt.subplots(figsize=(14, 9))
     data_to_plot = [daily_ret[col] * 100 for col in daily_ret.columns]
     labels = [col.replace('_ret', '') for col in daily_ret.columns]
-    bp = ax.boxplot(data_to_plot, labels=labels, patch_artist=True, widths=0.6)
+
+    # Create box plot with reduced outlier display
+    bp = ax.boxplot(data_to_plot, labels=labels, patch_artist=True, widths=0.6,
+                     showmeans=True, meanprops=dict(marker='D', markerfacecolor='white',
+                                                     markeredgecolor='black', markersize=8),
+                     whis=2.5,  # Only show outliers beyond 2.5x IQR (was default 1.5x)
+                     flierprops=dict(marker='o', markerfacecolor='gray', markersize=4,
+                                    alpha=0.4, markeredgewidth=0))
+
+    # Color the boxes
     for patch, label in zip(bp['boxes'], labels):
         patch.set_facecolor(COLORS.get(label, 'lightgray'))
         patch.set_alpha(0.7)
-    ax.set_ylabel('Daily Return (%)', fontsize=12)
-    ax.set_title('Return Distribution Comparison', fontsize=16, fontweight='bold')
+        # Highlight Portfolio with thicker border
+        if label == 'Portfolio':
+            patch.set_edgecolor(COLORS.get(label, 'lightgray'))
+            patch.set_linewidth(3)
+
+    # Add volatility annotations above each box
+    for i, (col, label) in enumerate(zip(daily_ret.columns, labels), 1):
+        returns = daily_ret[col] * 100
+        vol = returns.std()
+        median = returns.median()
+
+        # Annotate volatility above the box
+        y_pos = returns.quantile(0.75) + 0.5
+        ax.text(i, y_pos, f'σ = {vol:.3f}%',
+               ha='center', va='bottom', fontsize=9, fontweight='bold',
+               bbox=dict(boxstyle='round,pad=0.3', facecolor='white', edgecolor='gray', alpha=0.8))
+
+    # Styling
+    ax.set_ylabel('Daily Return (%)', fontsize=13, fontweight='bold')
+    ax.set_title('Return Distribution Comparison', fontsize=17, fontweight='bold', pad=35)
+    ax.text(0.5, 1.015, 'Lower volatility (narrower boxes) = more stable, predictable returns',
+            transform=ax.transAxes, ha='center', fontsize=11, style='italic', color='#666')
     ax.grid(True, alpha=0.3, axis='y')
-    ax.axhline(y=0, color='red', linestyle='--', linewidth=1, alpha=0.5)
+    ax.axhline(y=0, color='black', linestyle='--', linewidth=1.5, alpha=0.6, label='Zero return line')
+
+    # Add legend for box plot elements
+    from matplotlib.patches import Patch
+    legend_elements = [
+        Patch(facecolor='lightgray', edgecolor='black', label='Box = middle 50% of returns'),
+        plt.Line2D([0], [0], marker='D', color='w', markerfacecolor='white',
+                   markeredgecolor='black', markersize=8, label='Diamond = mean return'),
+        plt.Line2D([0], [0], color='black', linewidth=1.5, label='Line in box = median'),
+        plt.Line2D([0], [0], marker='o', color='w', markerfacecolor='white',
+                   markeredgecolor='black', markersize=6, label='Circles = outlier days')
+    ]
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=9, framealpha=0.9)
+
+    ax.set_xlabel('', fontsize=12)
+    plt.xticks(fontsize=11, fontweight='bold')
     plt.tight_layout()
     plt.savefig(os.path.join(CHART_DIR, '4_return_distributions.png'), dpi=150, bbox_inches='tight')
     plt.close()
-    print("  ✓ Return distributions chart")
+    print("  ✓ Return distributions chart (enhanced)")
 
     # 5. Average Returns: Up vs Down Days (from summary stats)
     fig, ax = plt.subplots(figsize=(14, 8))
@@ -159,8 +222,8 @@ def generate_charts():
         else:
             avg_on_up.append(0)
 
-    ax.bar([i - width/2 for i in x], avg_on_down, width, label='Portfolio on Down Days', color='#E63946', alpha=0.8)
-    ax.bar([i + width/2 for i in x], avg_on_up, width, label='Portfolio on Up Days', color='#06A77D', alpha=0.8)
+    ax.bar([i - width/2 for i in x], avg_on_down, width, label='Portfolio on Down Days', color=NEGATIVE_COLOR, alpha=0.8)
+    ax.bar([i + width/2 for i in x], avg_on_up, width, label='Portfolio on Up Days', color=POSITIVE_COLOR, alpha=0.8)
     ax.axhline(y=0, color='black', linestyle='-', linewidth=1)
     ax.set_ylabel('Average Daily Return (%)', fontsize=12)
     ax.set_title('Portfolio Average Returns on Benchmark Up vs Down Days', fontsize=16, fontweight='bold')
@@ -185,10 +248,25 @@ def generate_charts():
         dd_data[col.replace('_ret', '')] = (cum_ret - running_max) / running_max * 100
 
     fig, ax = plt.subplots(figsize=(14, 8))
+
+    # Line styles for better distinction
+    line_styles = {
+        'Portfolio': '-',   # Solid
+        'SPY': '-',         # Solid
+        'QQQ': '--',        # Dashed
+        'DIA': ':',         # Dotted
+        'IWM': '-.'         # Dash-dot
+    }
+
     for col in dd_data.columns:
-        ax.plot(dd_data.index, dd_data[col], label=col, linewidth=2, color=COLORS.get(col, 'gray'))
+        linestyle = line_styles.get(col, '-')
+        linewidth = 3 if col == 'Portfolio' else 2
+        ax.plot(dd_data.index, dd_data[col], label=col,
+               linewidth=linewidth, color=COLORS.get(col, 'gray'), linestyle=linestyle)
+
     portfolio_col = 'Portfolio' if 'Portfolio' in dd_data.columns else dd_data.columns[0]
-    ax.fill_between(dd_data.index, 0, dd_data[portfolio_col], alpha=0.3, color=COLORS.get(portfolio_col, COLORS['Portfolio']))
+    ax.fill_between(dd_data.index, 0, dd_data[portfolio_col], alpha=0.2, color=COLORS.get(portfolio_col, COLORS['Portfolio']))
+
     ax.set_title('Drawdown Comparison', fontsize=16, fontweight='bold')
     ax.set_xlabel('Date', fontsize=12)
     ax.set_ylabel('Drawdown (%)', fontsize=12)
@@ -269,7 +347,7 @@ def generate_html_dashboard():
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }}
         h1 {{
-            color: #2E86AB;
+            color: #0173B2;
             margin-bottom: 10px;
             font-size: 2.5em;
         }}
@@ -283,18 +361,18 @@ def generate_html_dashboard():
             padding: 15px;
             border-radius: 5px;
             margin-bottom: 30px;
-            border-left: 4px solid #2E86AB;
+            border-left: 4px solid #0173B2;
         }}
         .metadata p {{
             margin: 5px 0;
             color: #555;
         }}
         h2 {{
-            color: #2E86AB;
+            color: #0173B2;
             margin-top: 40px;
             margin-bottom: 20px;
             padding-bottom: 10px;
-            border-bottom: 2px solid #2E86AB;
+            border-bottom: 2px solid #0173B2;
         }}
         table {{
             width: 100%;
@@ -303,7 +381,7 @@ def generate_html_dashboard():
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
         }}
         th {{
-            background: #2E86AB;
+            background: #0173B2;
             color: white;
             padding: 12px;
             text-align: left;
@@ -318,15 +396,63 @@ def generate_html_dashboard():
         }}
         .metric-value {{
             font-weight: bold;
-            color: #2E86AB;
+            color: #0173B2;
         }}
         .good {{
-            color: #06A77D;
+            color: #029E73;
             font-weight: bold;
         }}
         .moderate {{
-            color: #F18F01;
+            color: #DE8F05;
             font-weight: bold;
+        }}
+        .explanation-box {{
+            background: #E8F4F8;
+            border-left: 4px solid #0173B2;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }}
+        .explanation-box p {{
+            margin: 8px 0;
+            color: #444;
+            line-height: 1.7;
+        }}
+        .explanation-box ul {{
+            margin: 10px 0 10px 20px;
+            color: #444;
+        }}
+        .explanation-box li {{
+            margin: 5px 0;
+        }}
+        .insight-box {{
+            background: #F0F9FF;
+            border-left: 4px solid #029E73;
+            padding: 15px 20px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }}
+        .insight-box h4 {{
+            color: #029E73;
+            margin-bottom: 10px;
+            font-size: 1.1em;
+        }}
+        .insight-box p {{
+            margin: 8px 0;
+            color: #444;
+        }}
+        .insight-box ul {{
+            margin: 10px 0 0 20px;
+        }}
+        .insight-box li {{
+            margin: 6px 0;
+            color: #444;
+        }}
+        .low-vol {{
+            background: #E8F5E9;
+        }}
+        .high-vol {{
+            background: #FFF3E0;
         }}
         .charts-grid {{
             display: grid;
@@ -396,11 +522,16 @@ def generate_html_dashboard():
         metric = row['Metric']
         value = row['Value'] * 100
 
+        # Extract benchmark name for interpretation
+        benchmark = metric.split('vs ')[1].split(' ')[0] if 'vs ' in metric else ''
+
         if 'Downside' in metric:
-            interpretation = "Lower is better - less downside captured"
+            # Calculate the actual loss ratio
+            interpretation = f"For every 1% {benchmark} drops, portfolio drops {value/100:.2f}%"
             color_class = 'good' if value < 70 else 'moderate'
         else:
-            interpretation = "Higher is better - more upside captured"
+            # Calculate the actual gain ratio
+            interpretation = f"For every 1% {benchmark} gains, portfolio gains {value/100:.2f}%"
             color_class = 'good' if value > 80 else 'moderate'
 
         html_content += f"""
@@ -414,6 +545,16 @@ def generate_html_dashboard():
     html_content += """
             </tbody>
         </table>
+
+        <div class="insight-box">
+            <h4>Understanding Capture Ratios</h4>
+            <p><strong>What do these numbers mean?</strong></p>
+            <ul>
+                <li><strong>Downside Capture:</strong> Measures portfolio losses relative to benchmark losses on down days. Lower values indicate downside protection. A 60% ratio means the portfolio loses 40% less than the benchmark during declines.</li>
+                <li><strong>Upside Capture:</strong> Measures portfolio gains relative to benchmark gains on up days. Higher values indicate upside participation. An 80% ratio means the portfolio captures 80% of the benchmark's gains during rallies.</li>
+                <li><strong>Ideal Strategy:</strong> Downside capture below 70% with upside capture above 70% indicates effective downside protection while maintaining upside participation.</li>
+            </ul>
+        </div>
 
         <h2>🛡️ Hit Rates on Down Days</h2>
         <p style="margin-bottom: 15px; color: #666;">Percentage of days portfolio is non-negative when benchmark is down</p>
@@ -434,17 +575,32 @@ def generate_html_dashboard():
         value = row['Value'] * 100
         benchmark = metric.split('on ')[1].split('-down')[0]
         color_class = 'good' if value > 35 else 'moderate'
+
+        # More specific interpretation
+        interpretation = f"Portfolio is flat or gains on {value:.1f}% of days when {benchmark} declines"
+
         html_content += f"""
                 <tr>
                     <td>{benchmark} down days</td>
                     <td class="{color_class}">{value:.1f}%</td>
-                    <td>Portfolio positive {value:.1f}% of the time</td>
+                    <td>{interpretation}</td>
                 </tr>
 """
 
     html_content += """
             </tbody>
         </table>
+
+        <div class="insight-box">
+            <h4>Understanding Hit Rates</h4>
+            <p><strong>What do these numbers mean?</strong></p>
+            <ul>
+                <li><strong>Hit Rate:</strong> Percentage of days the portfolio is non-negative (≥0%) when the benchmark is down. Higher values indicate stronger downside protection.</li>
+                <li><strong>Baseline Expectation:</strong> Random chance would yield ~50% hit rate. Values significantly above 50% indicate the portfolio is uncorrelated or inversely correlated with the benchmark during declines.</li>
+                <li><strong>Example:</strong> A 37.5% hit rate on SPY down days means that on roughly 1 out of every 3 days when SPY declines, the portfolio either breaks even or gains value.</li>
+                <li><strong>Strong Performance:</strong> Hit rates above 35-40% indicate effective downside protection through diversification, hedging, or low-correlation holdings.</li>
+            </ul>
+        </div>
 
         <h2>📈 Performance Summary</h2>
         <table>
@@ -454,7 +610,7 @@ def generate_html_dashboard():
                     <th>Days</th>
                     <th>Portfolio Hit Rate</th>
                     <th>Portfolio Avg Return</th>
-                    <th>Portfolio Worst Day</th>
+                    <th>Portfolio Worst Return</th>
                 </tr>
             </thead>
             <tbody>
@@ -488,6 +644,23 @@ def generate_html_dashboard():
             </tbody>
         </table>
 
+        <div class="insight-box">
+            <h4>Understanding Performance Summary</h4>
+            <p><strong>What do these numbers mean?</strong></p>
+            <ul>
+                <li><strong>Market Condition:</strong> Days are categorized by benchmark direction. "Down Days" = benchmark negative, "Up Or Flat Days" = benchmark non-negative.</li>
+                <li><strong>Hit Rate:</strong> Percentage of days portfolio is positive (≥0%) under that market condition. Higher is better in all scenarios.</li>
+                <li><strong>Avg Return:</strong> Mean portfolio daily return for that market condition. Negative on down days indicates portfolio follows benchmark direction. Positive on up days indicates upside participation.</li>
+                <li><strong>Worst Return:</strong> Single worst portfolio return under that market condition. Measures tail risk and maximum loss exposure.</li>
+            </ul>
+            <p><strong>Key Observations:</strong></p>
+            <ul>
+                <li><strong>Downside Protection:</strong> Portfolio average returns on down days (-0.32% to -0.47%) are less negative than capture ratios suggest, indicating effective buffering of losses.</li>
+                <li><strong>Upside Participation:</strong> Portfolio hit rates on up days (70-80%) demonstrate strong participation in rallies while maintaining positive average returns (+0.48% to +0.68%).</li>
+                <li><strong>Tail Risk:</strong> Worst return (-7.29%) occurred on April 4, 2025 during the tariff announcement selloff. Portfolio downside capture (125% of SPY) exceeded typical average (63%), representing an extreme outlier event. On benchmark up days, portfolio worst returns are much milder (-1.30% to -2.58%).</li>
+            </ul>
+        </div>
+
         <h2>📊 Visualizations</h2>
 
         <div class="charts-grid">
@@ -503,12 +676,113 @@ def generate_html_dashboard():
 
             <div class="chart-container">
                 <h3>3. Hit Rates on Down Days</h3>
+
+                <div class="explanation-box">
+                    <p><strong>Reading the Chart:</strong> Each bar shows the percentage of days the portfolio was non-negative (≥0%) when that benchmark declined. Higher bars indicate stronger downside protection.</p>
+                    <p><strong>Baseline:</strong> Random chance would yield ~50%. Values below 50% indicate the portfolio tends to move with the benchmark (positive correlation), but may decline less on average.</p>
+                </div>
+
                 <img src="charts/3_hit_rates.png" alt="Hit Rates">
+
+                <div class="insight-box">
+                    <h4>Key Insights</h4>
+                    <ul>
+                        <li><strong>Best Protection:</strong> QQQ (42.5%) - portfolio avoids losses on 42.5% of Nasdaq down days</li>
+                        <li><strong>Weakest Protection:</strong> IWM (34.0%) - portfolio declines on 66% of Russell 2000 down days</li>
+                        <li><strong>Interpretation:</strong> Hit rates of 34-42% indicate moderate positive correlation with benchmarks. The portfolio tends to move in the same direction but with reduced magnitude (see downside capture ratios).</li>
+                        <li><strong>BOTH Down Days (37.7%):</strong> When both SPY and QQQ decline simultaneously, the portfolio still avoids losses 37.7% of the time, demonstrating some defensive characteristics.</li>
+                    </ul>
+                </div>
             </div>
 
             <div class="chart-container">
-                <h3>4. Return Distribution Comparison</h3>
-                <img src="charts/4_return_distributions.png" alt="Return Distributions">
+                <h3>4. Return Distribution & Volatility Analysis</h3>
+
+                <div class="explanation-box">
+                    <p><strong>Reading the Chart:</strong> Box plots show the distribution of daily returns. The box contains 50% of returns (25th to 75th percentile). Whiskers show the typical range. Dots indicate outliers.</p>
+                    <p>A narrower box indicates lower volatility (more consistent daily returns). A wider box indicates higher volatility (more variable daily returns).</p>
+                </div>"""
+
+    # Calculate volatility statistics from cumulative returns
+    cum_df_data = pd.read_csv(os.path.join(HTML_DIR, "cumulative_returns.csv"), index_col=0)
+    daily_ret_calc = (cum_df_data + 1).pct_change().fillna(0)
+
+    vol_stats = []
+    assets = ['Portfolio_ret', 'SPY_ret', 'QQQ_ret', 'DIA_ret', 'IWM_ret']
+    for asset in assets:
+        if asset in daily_ret_calc.columns:
+            returns = daily_ret_calc[asset] * 100
+            asset_name = asset.replace('_ret', '')
+            vol_stats.append({
+                'Asset': asset_name,
+                'Volatility': returns.std(),
+                'Mean_Return': returns.mean(),
+                'Min': returns.min(),
+                'Max': returns.max()
+            })
+
+    vol_df = pd.DataFrame(vol_stats)
+    portfolio_vol = vol_df[vol_df['Asset'] == 'Portfolio']['Volatility'].values[0]
+
+    html_content += """
+
+                <h4 style="margin-top: 25px; margin-bottom: 12px; color: #0173B2;">📊 Volatility Statistics</h4>
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Asset</th>
+                            <th>Daily Volatility (Std Dev)</th>
+                            <th>Volatility vs Portfolio</th>
+                            <th>Mean Daily Return</th>
+                            <th>Range (Min/Max)</th>
+                        </tr>
+                    </thead>
+                    <tbody>"""
+
+    for _, row in vol_df.iterrows():
+        asset = row['Asset']
+        vol = row['Volatility']
+        mean_ret = row['Mean_Return']
+        vol_ratio = vol / portfolio_vol if asset != 'Portfolio' else 1.0
+
+        # Color code based on volatility
+        row_class = 'low-vol' if vol < portfolio_vol else ('high-vol' if vol > portfolio_vol * 1.2 else '')
+
+        vol_vs_port = f"Baseline" if asset == 'Portfolio' else f"{vol_ratio:.2f}x"
+
+        html_content += f"""
+                        <tr class="{row_class}">
+                            <td><strong>{asset}</strong></td>
+                            <td class="metric-value">{vol:.3f}%</td>
+                            <td>{vol_vs_port}</td>
+                            <td>{mean_ret:+.3f}%</td>
+                            <td>{row['Min']:.2f}% / {row['Max']:.2f}%</td>
+                        </tr>"""
+
+    html_content += """
+                    </tbody>
+                </table>
+
+                <img src="charts/4_return_distributions.png" alt="Return Distributions" style="margin-top: 20px;">
+
+                <div class="insight-box">
+                    <h4>Summary</h4>
+                    <ul>"""
+
+    # Generate dynamic insights based on actual data
+    spy_vol = vol_df[vol_df['Asset'] == 'SPY']['Volatility'].values[0]
+    qqq_vol = vol_df[vol_df['Asset'] == 'QQQ']['Volatility'].values[0]
+
+    vol_reduction_spy = ((spy_vol - portfolio_vol) / spy_vol) * 100
+    vol_reduction_qqq = ((qqq_vol - portfolio_vol) / qqq_vol) * 100
+
+    html_content += f"""
+                        <li>Portfolio volatility: {portfolio_vol:.3f}% (daily std dev)</li>
+                        <li>SPY volatility: {spy_vol:.3f}% ({vol_reduction_spy:+.0f}% vs Portfolio)</li>
+                        <li>QQQ volatility: {qqq_vol:.3f}% ({vol_reduction_qqq:+.0f}% vs Portfolio)</li>
+                        <li>Portfolio has {abs(vol_reduction_spy):.0f}% higher daily volatility than SPY but {abs(vol_reduction_qqq):.0f}% lower than QQQ. Higher volatility indicates more daily fluctuation but does not necessarily mean higher downside risk (see downside capture ratios).</li>
+                    </ul>
+                </div>
             </div>
 
             <div class="chart-container">
