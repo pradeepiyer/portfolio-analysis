@@ -42,11 +42,12 @@ TPL,0.0782
 python portfolio_analysis.py
 ```
 
-3. Results are saved to the `output/` directory:
-   - `capture_stats.csv` - Upside/downside capture ratios
-   - `summary_stats.csv` - Performance by market conditions
-   - `day_by_day_*.csv` - Daily return breakdowns
-   - `cumulative_returns.csv` - Cumulative performance vs benchmarks
+3. **Open the HTML dashboard:**
+```bash
+open html/index.html
+```
+
+The dashboard provides a comprehensive view of all metrics and visualizations in one place.
 
 ## Configuration
 
@@ -72,22 +73,54 @@ Percentage of days the portfolio is non-negative when benchmark is down.
 
 ## Output Files
 
-| File | Description |
-|------|-------------|
-| `capture_stats.csv` | Downside/upside capture ratios and hit rates |
-| `summary_stats.csv` | Aggregated statistics by market condition |
-| `day_by_day_all.csv` | Complete daily returns for portfolio and benchmarks |
-| `day_by_day_*_down.csv` | Returns filtered by benchmark down days |
-| `cumulative_returns.csv` | Cumulative performance over time |
-| `weights_used.csv` | Actual weights used after filtering |
-| `coverage_report.csv` | Data coverage for each ticker |
-| `dropped_tickers.txt` | Tickers excluded from analysis |
+All results are saved to the `html/` directory:
+
+### 📊 HTML Dashboard (PRIMARY OUTPUT)
+
+**`html/index.html`** - Interactive dashboard with:
+- Analysis metadata and date range
+- Capture ratios table with interpretations
+- Hit rates on down days
+- Performance summary across market conditions
+- All 7 visualization charts embedded
+- Professional styling, print-friendly
+
+**Simply open this file in your browser to view all results!**
+
+### 📈 Visualization Charts (`html/charts/`)
+
+The analysis automatically generates 7 charts:
+
+1. **1_cumulative_returns.png** - Line chart showing portfolio vs benchmark performance over time
+2. **2_capture_ratios.png** - Bar chart comparing upside/downside capture across all benchmarks
+3. **3_hit_rates.png** - Bar chart showing portfolio positive hit rates on benchmark down days
+4. **4_return_distributions.png** - Box plots comparing daily return distributions
+5. **5_avg_returns_up_down.png** - Portfolio average returns on benchmark up vs down days
+6. **6_drawdown.png** - Drawdown comparison showing maximum declines from peaks
+7. **7_portfolio_composition.png** - Pie chart of top 10 holdings and weights
+
+All charts use a consistent color scheme:
+- **Portfolio**: Blue (#2E86AB)
+- **SPY**: Purple (#A23B72)
+- **QQQ**: Orange (#F18F01)
+- **DIA**: Green (#06A77D)
+- **IWM**: Violet (#9D4EDD)
+
+### 📁 CSV Data Files (`html/`)
+
+For further analysis, the following CSV files are generated:
+- **capture_stats.csv** - Capture ratios and hit rates
+- **summary_stats.csv** - Performance statistics by market condition
+- **cumulative_returns.csv** - Time series of cumulative returns
+- **weights_used.csv** - Final portfolio weights after filtering
+- **dropped_tickers.txt** - Tickers excluded from analysis
 
 ## Requirements
 
 - Python 3.7+
 - yfinance
 - pandas
+- matplotlib
 
 ## License
 

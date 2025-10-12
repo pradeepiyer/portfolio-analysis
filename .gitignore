@@ -1,4 +1,5 @@
 # Output directory (analysis results - can be regenerated)
+html/
 output/
 output_*/
 
