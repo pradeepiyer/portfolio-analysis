@@ -15,7 +15,7 @@ START_DATE = END_DATE - timedelta(days=365*5)
 
 WEIGHTS_CSV = "weights.csv"   # expected columns: Symbol,Weight (or Ticker,Weight)
 BENCH = ["SPY", "QQQ", "DIA", "IWM"]  # SPY=S&P500, QQQ=Nasdaq100, DIA=DJIA, IWM=Russell2000
-OUTDIR = "html"
+OUTDIR = "current"
 os.makedirs(OUTDIR, exist_ok=True)
 
 # Ticker sanitation
