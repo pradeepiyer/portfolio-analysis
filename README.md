@@ -10,13 +10,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Run analysis (requires portfolio CSV file)
-python analyze.py portfolio.csv    # Fetch data, outputs to portfolio/ (~2-5 min)
-python visualize.py portfolio      # Generate charts in portfolio/ (~10 sec)
-open portfolio/index.html          # View dashboard
+# Run analysis (example portfolios included in portfolios/ directory)
+python analyze.py portfolios/faang.csv    # Fetch data, outputs to faang/ (~2-5 min)
+python visualize.py faang                 # Generate charts in faang/ (~10 sec)
+open faang/index.html                     # View dashboard
 ```
 
-**Note:** Output directory is automatically named from the CSV filename (e.g., `portfolio.csv` → `portfolio/`, `faang.csv` → `faang/`).
+**Note:** Output directory is automatically named from the CSV filename (e.g., `portfolios/faang.csv` → `faang/`, `my_portfolio.csv` → `my_portfolio/`).
 
 ## Portfolio Input
 
@@ -31,13 +31,40 @@ TPL,0.0782
 
 Weights should sum to ~1.0 (auto-normalized after filtering).
 
-## Multi-Portfolio Analysis
+## Example Portfolios
 
+This repo includes 6 pre-configured portfolio templates in `portfolios/`:
+
+**1. FAANG** (`portfolios/faang.csv`) - Equal-weight mega-cap tech
+```csv
+Symbol,Weight
+META,0.20
+AAPL,0.20
+AMZN,0.20
+NFLX,0.20
+GOOGL,0.20
+```
+
+**2. 60/40** (`portfolios/60_40.csv`) - Classic balanced portfolio
+- 60% SPY, 40% AGG
+
+**3. All Weather** (`portfolios/all_weather.csv`) - Ray Dalio's risk parity
+- 30% VTI, 40% TLT, 15% IEI, 7.5% GLD, 7.5% DBC
+
+**4. Permanent Portfolio** (`portfolios/permanent_portfolio.csv`) - Harry Browne's equal-weight
+- 25% VTI, 25% TLT, 25% BIL, 25% GLD
+
+**5. Bogleheads Three-Fund** (`portfolios/bogleheads_three_fund.csv`) - Diversified index approach
+- 54% VTI, 18% VXUS, 28% BND
+
+**6. Golden Butterfly** (`portfolios/golden_butterfly.csv`) - Tyler's 5-asset risk parity
+- 20% VTI, 20% VBR, 20% TLT, 20% SHY, 20% GLD
+
+Run any example:
 ```bash
-# Analyze different portfolios (auto-creates faang/ directory)
-python analyze.py faang.csv
-python visualize.py faang
-open faang/index.html
+python analyze.py portfolios/60_40.csv
+python visualize.py 60_40
+open 60_40/index.html
 ```
 
 ## Key Metrics
@@ -48,21 +75,19 @@ open faang/index.html
 | **Upside Capture** | Portfolio gain / Benchmark gain on up days | > 100% (higher is better) |
 | **Hit Rate** | % days portfolio ≥ 0% when benchmark < 0% | Higher is better |
 
-### Example: Portfolio vs FAANG
+### Example Results: FAANG Portfolio
 
-This repo includes two analyzed portfolios:
+The included FAANG portfolio (`portfolios/faang.csv`) demonstrates benchmark correlation analysis:
 
-**Portfolio** (31 holdings: metals, REITs, energy)
-- Downside capture vs SPY: **63.4%** ✓
-- Upside capture vs SPY: 81.4%
-- Stress-day hit rate: 33.4%
+**Holdings:** 5 equal-weight mega-cap tech stocks
+- META, AAPL, AMZN, NFLX, GOOGL (20% each)
 
-**FAANG** (5 equal-weight tech)
-- Downside capture vs SPY: 134.0% (amplifies losses)
-- Upside capture vs SPY: **135.5%** ✓
-- Stress-day hit rate: 14.2%
+**Correlation Profile:**
+- Downside capture vs SPY: **134.0%** (amplifies losses)
+- Upside capture vs SPY: **135.5%** (amplifies gains)
+- Stress-day hit rate: **14.2%** (low independence)
 
-**Trade-off:** Portfolio sacrifices 19% upside for 37% better downside protection.
+**Interpretation:** High-beta portfolio with strong correlation to benchmarks. Amplifies movements in both directions—excellent for growth-focused strategies but offers minimal downside protection.
 
 ## Output Files
 
@@ -148,16 +173,16 @@ BENCH = ["VTI", "VXUS", "BND", "GLD"]
 **Historical snapshots:**
 ```bash
 # Create dated portfolio files
-cp portfolio.csv portfolio_2024-10-12.csv
-cp portfolio.csv portfolio_2024-11-01.csv
+cp my_portfolio.csv my_portfolio_2024-10-12.csv
+cp my_portfolio.csv my_portfolio_2024-11-01.csv
 
-# Analyze each (creates portfolio_YYYY-MM-DD/ directories)
-python analyze.py portfolio_2024-10-12.csv
-python analyze.py portfolio_2024-11-01.csv
+# Analyze each (creates my_portfolio_YYYY-MM-DD/ directories)
+python analyze.py my_portfolio_2024-10-12.csv
+python analyze.py my_portfolio_2024-11-01.csv
 
 # Generate visualizations
-python visualize.py portfolio_2024-10-12
-python visualize.py portfolio_2024-11-01
+python visualize.py my_portfolio_2024-10-12
+python visualize.py my_portfolio_2024-11-01
 ```
 
 ## Requirements
@@ -172,8 +197,14 @@ python visualize.py portfolio_2024-11-01
 stock/
 ├── analyze.py                # Data pipeline (requires CSV argument)
 ├── visualize.py              # Chart generator (optional directory arg)
-├── portfolio.csv, faang.csv  # Example portfolio input files
-├── portfolio/, faang/        # Auto-created output directories
+├── portfolios/               # Example portfolio templates
+│   ├── faang.csv             # Equal-weight mega-cap tech
+│   ├── 60_40.csv             # Classic 60/40 balanced
+│   ├── all_weather.csv       # Ray Dalio's risk parity
+│   ├── permanent_portfolio.csv  # Harry Browne's equal-weight
+│   ├── bogleheads_three_fund.csv  # Diversified index
+│   └── golden_butterfly.csv  # Tyler's 5-asset risk parity
+├── faang/, 60_40/, etc.      # Auto-created output directories
 │   ├── index.html            # Dashboard
 │   ├── *.csv                 # Analysis data
 │   └── charts/               # PNG visualizations
