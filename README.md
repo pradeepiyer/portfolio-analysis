@@ -10,11 +10,13 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 
-# Run analysis
-python analyze.py              # Fetch data and calculate metrics (~2-5 min)
-python visualize.py            # Generate charts and HTML (~10 sec)
-open html/index.html           # View dashboard
+# Run analysis (requires portfolio CSV file)
+python analyze.py portfolio.csv    # Fetch data, outputs to portfolio/ (~2-5 min)
+python visualize.py portfolio      # Generate charts in portfolio/ (~10 sec)
+open portfolio/index.html          # View dashboard
 ```
+
+**Note:** Output directory is automatically named from the CSV filename (e.g., `portfolio.csv` → `portfolio/`, `faang.csv` → `faang/`).
 
 ## Portfolio Input
 
@@ -32,8 +34,8 @@ Weights should sum to ~1.0 (auto-normalized after filtering).
 ## Multi-Portfolio Analysis
 
 ```bash
-# Analyze different portfolios
-python analyze.py --output faang faang.csv
+# Analyze different portfolios (auto-creates faang/ directory)
+python analyze.py faang.csv
 python visualize.py faang
 open faang/index.html
 ```
@@ -63,6 +65,8 @@ This repo includes two analyzed portfolios:
 **Trade-off:** Portfolio sacrifices 19% upside for 37% better downside protection.
 
 ## Output Files
+
+All files are saved to a directory named after your input CSV (e.g., `portfolio.csv` → `portfolio/` directory).
 
 **Main dashboard:** `index.html` - All metrics and 7 charts in one page
 
@@ -105,13 +109,15 @@ ALIASES = {
 
 ## Two-Script Workflow
 
-**analyze.py** - Downloads data, calculates metrics, outputs CSVs
+**analyze.py portfolio.csv** - Downloads data, calculates metrics, outputs CSVs to `portfolio/`
 - Run when: data is stale, weights changed, config changed
 - Time: 2-5 minutes
+- Usage: `python analyze.py <file.csv>` (required argument)
 
-**visualize.py** - Reads CSVs, generates charts and HTML
+**visualize.py portfolio** - Reads CSVs, generates charts and HTML
 - Run when: after analyze.py, or tweaking chart styles
 - Time: ~10 seconds
+- Usage: `python visualize.py [directory]` (defaults to `current`)
 
 **Why separate?** Iterate on visualizations without re-downloading market data.
 
@@ -141,8 +147,17 @@ BENCH = ["VTI", "VXUS", "BND", "GLD"]
 
 **Historical snapshots:**
 ```bash
-python analyze.py --output snapshots/2024-10-12 portfolio.csv
-python analyze.py --output snapshots/2024-11-01 portfolio.csv
+# Create dated portfolio files
+cp portfolio.csv portfolio_2024-10-12.csv
+cp portfolio.csv portfolio_2024-11-01.csv
+
+# Analyze each (creates portfolio_YYYY-MM-DD/ directories)
+python analyze.py portfolio_2024-10-12.csv
+python analyze.py portfolio_2024-11-01.csv
+
+# Generate visualizations
+python visualize.py portfolio_2024-10-12
+python visualize.py portfolio_2024-11-01
 ```
 
 ## Requirements
@@ -155,12 +170,14 @@ python analyze.py --output snapshots/2024-11-01 portfolio.csv
 
 ```
 stock/
-├── analyze.py                # Data pipeline
-├── visualize.py              # Chart generator
-├── portfolio.csv, faang.csv  # Example portfolios
-├── html/                     # Default output
-├── portfolio/, faang/        # Analyzed portfolios
-└── output/                   # Historical data
+├── analyze.py                # Data pipeline (requires CSV argument)
+├── visualize.py              # Chart generator (optional directory arg)
+├── portfolio.csv, faang.csv  # Example portfolio input files
+├── portfolio/, faang/        # Auto-created output directories
+│   ├── index.html            # Dashboard
+│   ├── *.csv                 # Analysis data
+│   └── charts/               # PNG visualizations
+└── output/                   # Historical analysis data
 ```
 
 ## License
