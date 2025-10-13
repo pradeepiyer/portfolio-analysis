@@ -1,6 +1,6 @@
-# Portfolio Downside Protection Analyzer
+# Portfolio Benchmark Analyzer
 
-Analyzes portfolio performance against market benchmarks (SPY, QQQ, DIA, IWM) to measure downside protection and upside participation.
+Analyzes portfolio correlation and performance against 4 major market benchmarks (SPY, QQQ, DIA, IWM). Measures capture ratios, hit rates, and relative behavior.
 
 ## Quick Start
 
