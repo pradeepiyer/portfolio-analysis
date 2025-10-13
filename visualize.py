@@ -499,7 +499,7 @@ def generate_html_dashboard(html_dir):
 <body>
     <div class="container">
         <h1>📊 Portfolio Analysis Dashboard</h1>
-        <p class="subtitle">Downside Protection Strategy Analysis</p>
+        <p class="subtitle">Portfolio vs Benchmark Analysis</p>
 
         <div class="metadata">
             <p><strong>Portfolio Positions:</strong> {num_positions} equities</p>
