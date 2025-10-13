@@ -179,7 +179,3 @@ stock/
 │   └── charts/               # PNG visualizations
 └── output/                   # Historical analysis data
 ```
-
-## License
-
-Private repository for personal portfolio analysis.
