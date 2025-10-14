@@ -125,6 +125,190 @@ def load_weights(path: str) -> pd.Series:
     wdf["Weight"] = wdf["Weight"] / wdf["Weight"].sum()
     return wdf.set_index("Ticker")["Weight"]
 
+def calculate_drawdowns(cumulative_returns: pd.Series) -> pd.DataFrame:
+    """Calculate all drawdown periods for a cumulative return series."""
+    cum_ret = cumulative_returns + 1
+    running_max = cum_ret.expanding().max()
+    drawdown = (cum_ret - running_max) / running_max
+
+    # Find drawdown periods (consecutive negative drawdowns)
+    is_underwater = drawdown < 0
+
+    drawdowns = []
+    in_drawdown = False
+    peak_idx = None
+    peak_val = None
+    trough_idx = None
+    trough_val = None
+
+    for i, (idx, val) in enumerate(zip(cum_ret.index, cum_ret.values)):
+        if not in_drawdown and is_underwater.iloc[i]:
+            # Start of drawdown
+            in_drawdown = True
+            peak_idx = cum_ret.index[i-1] if i > 0 else idx
+            peak_val = running_max.iloc[i]
+            trough_idx = idx
+            trough_val = val
+        elif in_drawdown and is_underwater.iloc[i]:
+            # Continue drawdown - update trough if deeper
+            if val < trough_val:
+                trough_idx = idx
+                trough_val = val
+        elif in_drawdown and not is_underwater.iloc[i]:
+            # End of drawdown (recovery to previous peak)
+            recovery_idx = idx
+            duration = (trough_idx - peak_idx).days if hasattr(trough_idx - peak_idx, 'days') else len(cum_ret[peak_idx:trough_idx])
+            recovery_time = (recovery_idx - trough_idx).days if hasattr(recovery_idx - trough_idx, 'days') else len(cum_ret[trough_idx:recovery_idx])
+
+            drawdowns.append({
+                'peak_date': peak_idx,
+                'trough_date': trough_idx,
+                'recovery_date': recovery_idx,
+                'peak_value': peak_val,
+                'trough_value': trough_val,
+                'drawdown_pct': (trough_val - peak_val) / peak_val,
+                'duration_days': duration,
+                'recovery_days': recovery_time,
+                'total_underwater_days': duration + recovery_time
+            })
+
+            in_drawdown = False
+
+    # Handle ongoing drawdown (not recovered yet)
+    if in_drawdown:
+        duration = (trough_idx - peak_idx).days if hasattr(trough_idx - peak_idx, 'days') else len(cum_ret[peak_idx:trough_idx])
+        drawdowns.append({
+            'peak_date': peak_idx,
+            'trough_date': trough_idx,
+            'recovery_date': None,
+            'peak_value': peak_val,
+            'trough_value': trough_val,
+            'drawdown_pct': (trough_val - peak_val) / peak_val,
+            'duration_days': duration,
+            'recovery_days': None,
+            'total_underwater_days': None
+        })
+
+    return pd.DataFrame(drawdowns) if drawdowns else pd.DataFrame()
+
+def calculate_resilience_metrics(cum_returns_df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    """Calculate comprehensive resilience metrics for portfolio and benchmarks."""
+
+    assets = cum_returns_df.columns.tolist()
+
+    # 1. Drawdown stats per asset
+    drawdown_stats = []
+    # 2. Resilience stats per asset
+    resilience_stats = []
+
+    all_drawdowns = {}  # Store all drawdowns for later analysis
+
+    for asset in assets:
+        cum_ret = cum_returns_df[asset]
+        dds = calculate_drawdowns(cum_ret)
+        all_drawdowns[asset] = dds
+
+        if dds.empty:
+            # No drawdowns - perfect performance
+            drawdown_stats.append({
+                'Asset': asset.replace('_ret', ''),
+                'Max_Drawdown_Pct': 0.0,
+                'Max_Drawdown_Date': None,
+                'Max_DD_Duration_Days': 0,
+                'Num_Drawdowns_Over_10pct': 0,
+                'Avg_Drawdown_Pct': 0.0
+            })
+            resilience_stats.append({
+                'Asset': asset.replace('_ret', ''),
+                'Avg_Recovery_Days': 0.0,
+                'Avg_Recovery_Speed_Pct_Per_Day': 0.0,
+                'Longest_Underwater_Period_Days': 0
+            })
+            continue
+
+        # Max drawdown
+        max_dd_idx = dds['drawdown_pct'].idxmin()
+        max_dd = dds.loc[max_dd_idx]
+
+        # Drawdowns > 10%
+        significant_dds = dds[dds['drawdown_pct'] < -0.10]
+
+        # Average drawdown
+        avg_dd = dds['drawdown_pct'].mean()
+
+        drawdown_stats.append({
+            'Asset': asset.replace('_ret', ''),
+            'Max_Drawdown_Pct': max_dd['drawdown_pct'],
+            'Max_Drawdown_Date': max_dd['trough_date'],
+            'Max_DD_Duration_Days': max_dd['duration_days'],
+            'Num_Drawdowns_Over_10pct': len(significant_dds),
+            'Avg_Drawdown_Pct': avg_dd
+        })
+
+        # Recovery metrics (only for completed drawdowns)
+        completed_dds = dds[dds['recovery_date'].notna()]
+
+        if not completed_dds.empty:
+            avg_recovery_days = completed_dds['recovery_days'].mean()
+            # Recovery speed = drawdown depth / recovery days
+            completed_dds_copy = completed_dds.copy()
+            completed_dds_copy['recovery_speed'] = completed_dds_copy['drawdown_pct'].abs() / completed_dds_copy['recovery_days']
+            avg_recovery_speed = completed_dds_copy['recovery_speed'].mean()
+        else:
+            avg_recovery_days = float('nan')
+            avg_recovery_speed = float('nan')
+
+        # Longest underwater period
+        longest_underwater = dds['total_underwater_days'].max() if not dds['total_underwater_days'].isna().all() else 0
+        if pd.isna(longest_underwater):
+            longest_underwater = 0
+
+        resilience_stats.append({
+            'Asset': asset.replace('_ret', ''),
+            'Avg_Recovery_Days': avg_recovery_days,
+            'Avg_Recovery_Speed_Pct_Per_Day': avg_recovery_speed,
+            'Longest_Underwater_Period_Days': int(longest_underwater)
+        })
+
+    drawdown_df = pd.DataFrame(drawdown_stats)
+    resilience_df = pd.DataFrame(resilience_stats)
+
+    # 3. Comparative resilience (Portfolio vs each benchmark)
+    portfolio_resilience = resilience_df[resilience_df['Asset'] == 'Portfolio'].iloc[0] if 'Portfolio' in resilience_df['Asset'].values else None
+    portfolio_drawdown = drawdown_df[drawdown_df['Asset'] == 'Portfolio'].iloc[0] if 'Portfolio' in drawdown_df['Asset'].values else None
+
+    comparison_stats = []
+
+    if portfolio_resilience is not None and portfolio_drawdown is not None:
+        benchmarks = ['SPY', 'QQQ', 'DIA', 'IWM']
+        for bench in benchmarks:
+            bench_resilience = resilience_df[resilience_df['Asset'] == bench]
+            bench_drawdown = drawdown_df[drawdown_df['Asset'] == bench]
+
+            if not bench_resilience.empty and not bench_drawdown.empty:
+                bench_r = bench_resilience.iloc[0]
+                bench_d = bench_drawdown.iloc[0]
+
+                # Calculate ratios (Portfolio / Benchmark)
+                # Lower recovery time ratio = better (portfolio recovers faster)
+                # Higher recovery speed ratio = better (portfolio recovers faster per day)
+                # Lower max drawdown ratio = better (portfolio has shallower drawdowns)
+
+                recovery_time_ratio = portfolio_resilience['Avg_Recovery_Days'] / bench_r['Avg_Recovery_Days'] if bench_r['Avg_Recovery_Days'] > 0 and not pd.isna(bench_r['Avg_Recovery_Days']) else float('nan')
+                recovery_speed_ratio = portfolio_resilience['Avg_Recovery_Speed_Pct_Per_Day'] / bench_r['Avg_Recovery_Speed_Pct_Per_Day'] if bench_r['Avg_Recovery_Speed_Pct_Per_Day'] > 0 and not pd.isna(bench_r['Avg_Recovery_Speed_Pct_Per_Day']) else float('nan')
+                max_dd_ratio = abs(portfolio_drawdown['Max_Drawdown_Pct']) / abs(bench_d['Max_Drawdown_Pct']) if bench_d['Max_Drawdown_Pct'] != 0 else float('nan')
+
+                comparison_stats.append({
+                    'Benchmark': bench,
+                    'Recovery_Time_Ratio': recovery_time_ratio,
+                    'Recovery_Speed_Ratio': recovery_speed_ratio,
+                    'Max_Drawdown_Ratio': max_dd_ratio
+                })
+
+    comparison_df = pd.DataFrame(comparison_stats)
+
+    return drawdown_df, resilience_df, comparison_df
+
 def main():
     # Parse command-line arguments
     if len(sys.argv) < 2:
@@ -315,8 +499,73 @@ def main():
     cum = (1 + out[["Portfolio_ret","SPY_ret","QQQ_ret","DIA_ret","IWM_ret"]]).cumprod() - 1
     cum.to_csv(os.path.join(outdir, "cumulative_returns.csv"), index_label="Date")
 
+    # Calculate resilience metrics
+    print("\nCalculating resilience metrics...")
+    drawdown_df, resilience_df, comparison_df = calculate_resilience_metrics(cum)
+
+    # Export resilience CSVs
+    drawdown_df.to_csv(os.path.join(outdir, "drawdown_stats.csv"), index=False)
+    resilience_df.to_csv(os.path.join(outdir, "resilience_stats.csv"), index=False)
+    comparison_df.to_csv(os.path.join(outdir, "recovery_comparison.csv"), index=False)
+
+    # Print resilience summary to terminal
+    print("\n" + "="*60)
+    print("RESILIENCE ANALYSIS")
+    print("="*60)
+
+    port_dd = drawdown_df[drawdown_df['Asset'] == 'Portfolio']
+    port_res = resilience_df[resilience_df['Asset'] == 'Portfolio']
+
+    if not port_dd.empty and not port_res.empty:
+        max_dd = port_dd.iloc[0]['Max_Drawdown_Pct'] * 100
+        avg_recovery = port_res.iloc[0]['Avg_Recovery_Days']
+        recovery_speed = port_res.iloc[0]['Avg_Recovery_Speed_Pct_Per_Day'] * 100
+
+        print(f"Portfolio Max Drawdown: {max_dd:.2f}%")
+        print(f"Avg Recovery Time: {avg_recovery:.0f} days")
+        print(f"Recovery Speed: {recovery_speed:.3f}% per day")
+
+        # Show comparisons vs SPY
+        spy_comparison = comparison_df[comparison_df['Benchmark'] == 'SPY']
+        if not spy_comparison.empty:
+            spy_comp = spy_comparison.iloc[0]
+            spy_dd = drawdown_df[drawdown_df['Asset'] == 'SPY'].iloc[0]
+            spy_res = resilience_df[resilience_df['Asset'] == 'SPY'].iloc[0]
+
+            print(f"\nVs SPY:")
+            print(f"  Max Drawdown: Portfolio {max_dd:.2f}% vs SPY {spy_dd['Max_Drawdown_Pct']*100:.2f}% ({spy_comp['Max_Drawdown_Ratio']:.2f}x)")
+            if not pd.isna(spy_comp['Recovery_Time_Ratio']):
+                print(f"  Recovery Time: {spy_comp['Recovery_Time_Ratio']:.2f}x SPY ({avg_recovery:.0f} vs {spy_res['Avg_Recovery_Days']:.0f} days)")
+            if not pd.isna(spy_comp['Recovery_Speed_Ratio']):
+                print(f"  Recovery Speed: {spy_comp['Recovery_Speed_Ratio']:.2f}x SPY")
+
+    print("\n" + "="*60)
+    print("CORRELATION METRICS")
+    print("="*60)
+
+    # Show key correlation metrics
+    spy_down = out.loc[out["SPY_down"]]
+    if len(spy_down) > 0:
+        port_avg_spy_down = spy_down["Portfolio_ret"].mean() * 100
+        spy_avg_spy_down = spy_down["SPY_ret"].mean() * 100
+        downside_capture = (port_avg_spy_down / spy_avg_spy_down) * 100 if spy_avg_spy_down != 0 else float('nan')
+        print(f"Downside Capture vs SPY: {downside_capture:.1f}%")
+
+    spy_up = out.loc[~out["SPY_down"]]
+    if len(spy_up) > 0:
+        port_avg_spy_up = spy_up["Portfolio_ret"].mean() * 100
+        spy_avg_spy_up = spy_up["SPY_ret"].mean() * 100
+        upside_capture = (port_avg_spy_up / spy_avg_spy_up) * 100 if spy_avg_spy_up != 0 else float('nan')
+        print(f"Upside Capture vs SPY: {upside_capture:.1f}%")
+
+    if len(spy_down) > 0:
+        hit_rate = (spy_down["Portfolio_ret"] >= 0).mean() * 100
+        print(f"Hit Rate on SPY Down Days: {hit_rate:.1f}%")
+
+    print("\n" + "="*60)
     print(f"Analysis complete. CSV data saved to {outdir}/")
     print(f"Run: python visualize.py {outdir}")
+    print("="*60)
 
 if __name__ == "__main__":
     main()

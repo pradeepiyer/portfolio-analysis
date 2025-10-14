@@ -53,6 +53,11 @@ def generate_charts(html_dir):
     cum_df = pd.read_csv(os.path.join(html_dir, "cumulative_returns.csv"), index_col=0, parse_dates=True)
     weights_df = pd.read_csv(os.path.join(html_dir, "weights_used.csv"), index_col=0)
 
+    # Read resilience data files
+    drawdown_df = pd.read_csv(os.path.join(html_dir, "drawdown_stats.csv"))
+    resilience_df = pd.read_csv(os.path.join(html_dir, "resilience_stats.csv"))
+    recovery_comparison_df = pd.read_csv(os.path.join(html_dir, "recovery_comparison.csv"))
+
     # 1. Portfolio Composition Chart
     fig, ax = plt.subplots(figsize=(12, max(8, len(weights_df) * 0.4)))
 
@@ -79,6 +84,89 @@ def generate_charts(html_dir):
     plt.close()
     print("  ✓ Portfolio composition chart")
 
+    # 2. Recovery Time Comparison (Resilience Chart 1)
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    assets_ordered = ['Portfolio', 'SPY', 'QQQ', 'DIA', 'IWM']
+    recovery_times = []
+    colors_list = []
+
+    for asset in assets_ordered:
+        res_row = resilience_df[resilience_df['Asset'] == asset]
+        if not res_row.empty:
+            recovery_times.append(res_row.iloc[0]['Avg_Recovery_Days'])
+            colors_list.append(COLORS.get(asset, 'gray'))
+        else:
+            recovery_times.append(0)
+            colors_list.append('gray')
+
+    bars = ax.bar(assets_ordered, recovery_times, color=colors_list, alpha=0.8, edgecolor='black', linewidth=1.5)
+
+    # Highlight portfolio with thicker border
+    bars[0].set_edgecolor(COLORS['Portfolio'])
+    bars[0].set_linewidth(3)
+
+    # Add value labels on bars
+    for bar, val in zip(bars, recovery_times):
+        if not pd.isna(val) and val > 0:
+            height = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2., height + 1,
+                   f'{val:.0f} days', ha='center', va='bottom', fontsize=11, fontweight='bold')
+
+    ax.set_ylabel('Average Recovery Time (days)', fontsize=13, fontweight='bold')
+    ax.set_title('Recovery Speed Comparison: Lower is Better', fontsize=16, fontweight='bold')
+    ax.set_xlabel('', fontsize=12)
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.xticks(fontsize=12, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(os.path.join(chart_dir, '2_recovery_time.png'), dpi=150, bbox_inches='tight')
+    plt.close()
+    print("  ✓ Recovery time comparison chart")
+
+    # 3. Resilience Scorecard (Resilience Chart 2)
+    fig, ax = plt.subplots(figsize=(12, 7))
+
+    # Create a dual-metric comparison
+    x_positions = range(len(assets_ordered))
+    width = 0.35
+
+    # Extract data for each metric
+    max_drawdowns = []
+    avg_recoveries = []
+
+    for asset in assets_ordered:
+        dd_row = drawdown_df[drawdown_df['Asset'] == asset]
+        res_row = resilience_df[resilience_df['Asset'] == asset]
+
+        if not dd_row.empty:
+            max_drawdowns.append(abs(dd_row.iloc[0]['Max_Drawdown_Pct']) * 100)
+        else:
+            max_drawdowns.append(0)
+
+        if not res_row.empty:
+            avg_recoveries.append(res_row.iloc[0]['Avg_Recovery_Days'])
+        else:
+            avg_recoveries.append(0)
+
+    # Create grouped bars
+    ax.bar([p - width/2 for p in x_positions], max_drawdowns, width, label='Max Drawdown (%)',
+           color=NEGATIVE_COLOR, alpha=0.7)
+    ax.bar([p + width/2 for p in x_positions], avg_recoveries, width, label='Avg Recovery (days)',
+           color='#0173B2', alpha=0.7)
+
+    ax.set_ylabel('Value (varies by metric)', fontsize=13, fontweight='bold')
+    ax.set_title('Resilience Scorecard: Key Metrics\nLower values = Better resilience',
+                 fontsize=16, fontweight='bold', pad=20)
+    ax.set_xticks(x_positions)
+    ax.set_xticklabels(assets_ordered, fontsize=12, fontweight='bold')
+    ax.legend(fontsize=11, loc='upper left')
+    ax.grid(True, alpha=0.3, axis='y')
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(chart_dir, '3_resilience_scorecard.png'), dpi=150, bbox_inches='tight')
+    plt.close()
+    print("  ✓ Resilience scorecard chart")
+
     # We need to reconstruct daily returns data for some charts
     # Calculate from cumulative returns
     ret_cols = [c for c in cum_df.columns if '_ret' in c or c == 'Portfolio_ret']
@@ -88,7 +176,94 @@ def generate_charts(html_dir):
     # Convert cumulative to daily returns
     daily_ret = (cum_df + 1).pct_change().fillna(0)
 
-    # 2. Cumulative Returns Chart
+    # 4. Enhanced Drawdown Chart (Resilience - moved up for priority)
+    dd_data = pd.DataFrame(index=cum_df.index)
+    for col in cum_df.columns:
+        cum_ret = (cum_df[col] + 1)
+        running_max = cum_ret.expanding().max()
+        dd_data[col.replace('_ret', '')] = (cum_ret - running_max) / running_max * 100
+
+    fig, ax = plt.subplots(figsize=(14, 8))
+
+    # Line styles for better distinction
+    line_styles = {
+        'Portfolio': '-',   # Solid
+        'SPY': '-',         # Solid
+        'QQQ': '--',        # Dashed
+        'DIA': ':',         # Dotted
+        'IWM': '-.'         # Dash-dot
+    }
+
+    for col in dd_data.columns:
+        linestyle = line_styles.get(col, '-')
+        linewidth = 3 if col == 'Portfolio' else 2
+        ax.plot(dd_data.index, dd_data[col], label=col,
+               linewidth=linewidth, color=COLORS.get(col, 'gray'), linestyle=linestyle)
+
+    portfolio_col = 'Portfolio' if 'Portfolio' in dd_data.columns else dd_data.columns[0]
+    ax.fill_between(dd_data.index, 0, dd_data[portfolio_col], alpha=0.2, color=COLORS.get(portfolio_col, COLORS['Portfolio']))
+
+    ax.set_title('Drawdown Analysis: Recovery Resilience', fontsize=16, fontweight='bold')
+    ax.set_xlabel('Date', fontsize=12)
+    ax.set_ylabel('Drawdown (%)', fontsize=12)
+    ax.legend(loc='best', fontsize=11)
+    ax.grid(True, alpha=0.3)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig(os.path.join(chart_dir, '4_drawdown.png'), dpi=150, bbox_inches='tight')
+    plt.close()
+    print("  ✓ Drawdown analysis chart")
+
+    # 5. Capture Ratios Comparison (Correlation metric - moved down)
+    capture_data = capture_df[capture_df['Metric'].str.contains('capture')].copy()
+    capture_data['Type'] = capture_data['Metric'].apply(lambda x: 'Downside' if 'Downside' in x else 'Upside')
+    capture_data['Benchmark'] = capture_data['Metric'].str.extract(r'vs (\w+)')[0]
+
+    fig, ax = plt.subplots(figsize=(12, 7))
+    benchmarks = ['SPY', 'QQQ', 'DIA', 'IWM']
+    x = range(len(benchmarks))
+    width = 0.35
+    downside_vals = [capture_data[(capture_data['Type']=='Downside') & (capture_data['Benchmark']==b)]['Value'].values[0] * 100 for b in benchmarks]
+    upside_vals = [capture_data[(capture_data['Type']=='Upside') & (capture_data['Benchmark']==b)]['Value'].values[0] * 100 for b in benchmarks]
+
+    ax.bar([i - width/2 for i in x], downside_vals, width, label='Downside Capture', color=NEGATIVE_COLOR, alpha=0.8)
+    ax.bar([i + width/2 for i in x], upside_vals, width, label='Upside Capture', color=POSITIVE_COLOR, alpha=0.8)
+    ax.axhline(y=100, color='gray', linestyle='--', linewidth=1, alpha=0.5)
+    ax.set_ylabel('Capture Ratio (%)', fontsize=12)
+    ax.set_title('Portfolio Capture Ratios vs Benchmarks', fontsize=16, fontweight='bold')
+    ax.set_xticks(x)
+    ax.set_xticklabels(benchmarks, fontsize=11)
+    ax.legend(fontsize=11)
+    ax.grid(True, alpha=0.3, axis='y')
+    for i, (d, u) in enumerate(zip(downside_vals, upside_vals)):
+        ax.text(i - width/2, d + 2, f'{d:.1f}%', ha='center', va='bottom', fontsize=9, fontweight='bold')
+        ax.text(i + width/2, u + 2, f'{u:.1f}%', ha='center', va='bottom', fontsize=9, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(os.path.join(chart_dir, '5_capture_ratios.png'), dpi=150, bbox_inches='tight')
+    plt.close()
+    print("  ✓ Capture ratios chart")
+
+    # 6. Hit Rates on Down Days
+    hit_rate_data = capture_df[capture_df['Metric'].str.contains('Hit-rate')].copy()
+    hit_rate_data['Benchmark'] = hit_rate_data['Metric'].str.extract(r'on (\w+)-down')[0]
+    hit_rate_data = hit_rate_data[hit_rate_data['Benchmark'].notna()]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    bars = ax.bar(hit_rate_data['Benchmark'], hit_rate_data['Value'] * 100, color=COLORS['Portfolio'], alpha=0.8)
+    ax.set_ylabel('Hit Rate (%)', fontsize=12)
+    ax.set_title('Portfolio Hit Rate on Benchmark Down Days\n(% of days portfolio ≥ 0%)', fontsize=16, fontweight='bold')
+    ax.grid(True, alpha=0.3, axis='y')
+    for bar in bars:
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height + 1,
+               f'{height:.1f}%', ha='center', va='bottom', fontsize=10, fontweight='bold')
+    plt.tight_layout()
+    plt.savefig(os.path.join(chart_dir, '6_hit_rates.png'), dpi=150, bbox_inches='tight')
+    plt.close()
+    print("  ✓ Hit rates chart")
+
+    # 7. Cumulative Returns Chart
     fig, ax = plt.subplots(figsize=(14, 8))
 
     # Line styles for better distinction (colorblind-friendly)
@@ -115,59 +290,11 @@ def generate_charts(html_dir):
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
     plt.xticks(rotation=45)
     plt.tight_layout()
-    plt.savefig(os.path.join(chart_dir, '2_cumulative_returns.png'), dpi=150, bbox_inches='tight')
+    plt.savefig(os.path.join(chart_dir, '7_cumulative_returns.png'), dpi=150, bbox_inches='tight')
     plt.close()
     print("  ✓ Cumulative returns chart")
 
-    # 3. Capture Ratios Comparison
-    capture_data = capture_df[capture_df['Metric'].str.contains('capture')].copy()
-    capture_data['Type'] = capture_data['Metric'].apply(lambda x: 'Downside' if 'Downside' in x else 'Upside')
-    capture_data['Benchmark'] = capture_data['Metric'].str.extract(r'vs (\w+)')[0]
-
-    fig, ax = plt.subplots(figsize=(12, 7))
-    benchmarks = ['SPY', 'QQQ', 'DIA', 'IWM']
-    x = range(len(benchmarks))
-    width = 0.35
-    downside_vals = [capture_data[(capture_data['Type']=='Downside') & (capture_data['Benchmark']==b)]['Value'].values[0] * 100 for b in benchmarks]
-    upside_vals = [capture_data[(capture_data['Type']=='Upside') & (capture_data['Benchmark']==b)]['Value'].values[0] * 100 for b in benchmarks]
-
-    ax.bar([i - width/2 for i in x], downside_vals, width, label='Downside Capture', color=NEGATIVE_COLOR, alpha=0.8)
-    ax.bar([i + width/2 for i in x], upside_vals, width, label='Upside Capture', color=POSITIVE_COLOR, alpha=0.8)
-    ax.axhline(y=100, color='gray', linestyle='--', linewidth=1, alpha=0.5)
-    ax.set_ylabel('Capture Ratio (%)', fontsize=12)
-    ax.set_title('Portfolio Capture Ratios vs Benchmarks', fontsize=16, fontweight='bold')
-    ax.set_xticks(x)
-    ax.set_xticklabels(benchmarks, fontsize=11)
-    ax.legend(fontsize=11)
-    ax.grid(True, alpha=0.3, axis='y')
-    for i, (d, u) in enumerate(zip(downside_vals, upside_vals)):
-        ax.text(i - width/2, d + 2, f'{d:.1f}%', ha='center', va='bottom', fontsize=9, fontweight='bold')
-        ax.text(i + width/2, u + 2, f'{u:.1f}%', ha='center', va='bottom', fontsize=9, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(os.path.join(chart_dir, '3_capture_ratios.png'), dpi=150, bbox_inches='tight')
-    plt.close()
-    print("  ✓ Capture ratios chart")
-
-    # 4. Hit Rates on Down Days
-    hit_rate_data = capture_df[capture_df['Metric'].str.contains('Hit-rate')].copy()
-    hit_rate_data['Benchmark'] = hit_rate_data['Metric'].str.extract(r'on (\w+)-down')[0]
-    hit_rate_data = hit_rate_data[hit_rate_data['Benchmark'].notna()]
-
-    fig, ax = plt.subplots(figsize=(10, 6))
-    bars = ax.bar(hit_rate_data['Benchmark'], hit_rate_data['Value'] * 100, color=COLORS['Portfolio'], alpha=0.8)
-    ax.set_ylabel('Hit Rate (%)', fontsize=12)
-    ax.set_title('Portfolio Hit Rate on Benchmark Down Days\n(% of days portfolio ≥ 0%)', fontsize=16, fontweight='bold')
-    ax.grid(True, alpha=0.3, axis='y')
-    for bar in bars:
-        height = bar.get_height()
-        ax.text(bar.get_x() + bar.get_width()/2., height + 1,
-               f'{height:.1f}%', ha='center', va='bottom', fontsize=10, fontweight='bold')
-    plt.tight_layout()
-    plt.savefig(os.path.join(chart_dir, '4_hit_rates.png'), dpi=150, bbox_inches='tight')
-    plt.close()
-    print("  ✓ Hit rates chart")
-
-    # 5. Return Distribution Box Plots (Enhanced)
+    # 8. Return Distribution Box Plots (Enhanced)
     fig, ax = plt.subplots(figsize=(14, 9))
     data_to_plot = [daily_ret[col] * 100 for col in daily_ret.columns]
     labels = [col.replace('_ret', '') for col in daily_ret.columns]
@@ -193,7 +320,6 @@ def generate_charts(html_dir):
     for i, (col, label) in enumerate(zip(daily_ret.columns, labels), 1):
         returns = daily_ret[col] * 100
         vol = returns.std()
-        median = returns.median()
 
         # Annotate volatility above the box
         y_pos = returns.quantile(0.75) + 0.5
@@ -224,11 +350,11 @@ def generate_charts(html_dir):
     ax.set_xlabel('', fontsize=12)
     plt.xticks(fontsize=11, fontweight='bold')
     plt.tight_layout()
-    plt.savefig(os.path.join(chart_dir, '5_return_distributions.png'), dpi=150, bbox_inches='tight')
+    plt.savefig(os.path.join(chart_dir, '8_return_distributions.png'), dpi=150, bbox_inches='tight')
     plt.close()
     print("  ✓ Return distributions chart (enhanced)")
 
-    # 6. Average Returns: Up vs Down Days (from summary stats)
+    # 9. Average Returns: Up vs Down Days (from summary stats)
     fig, ax = plt.subplots(figsize=(14, 8))
     benchmarks = ['SPY', 'QQQ', 'DIA', 'IWM']
     x = range(len(benchmarks))
@@ -262,48 +388,9 @@ def generate_charts(html_dir):
                ha='center', va='top' if d < 0 else 'bottom', fontsize=9, fontweight='bold')
         ax.text(i + width/2, u + 0.02, f'{u:.2f}%', ha='center', va='bottom', fontsize=9, fontweight='bold')
     plt.tight_layout()
-    plt.savefig(os.path.join(chart_dir, '6_avg_returns_up_down.png'), dpi=150, bbox_inches='tight')
+    plt.savefig(os.path.join(chart_dir, '9_avg_returns_up_down.png'), dpi=150, bbox_inches='tight')
     plt.close()
     print("  ✓ Average returns chart")
-
-    # 7. Drawdown Chart
-    dd_data = pd.DataFrame(index=cum_df.index)
-    for col in cum_df.columns:
-        cum_ret = (cum_df[col] + 1)
-        running_max = cum_ret.expanding().max()
-        dd_data[col.replace('_ret', '')] = (cum_ret - running_max) / running_max * 100
-
-    fig, ax = plt.subplots(figsize=(14, 8))
-
-    # Line styles for better distinction
-    line_styles = {
-        'Portfolio': '-',   # Solid
-        'SPY': '-',         # Solid
-        'QQQ': '--',        # Dashed
-        'DIA': ':',         # Dotted
-        'IWM': '-.'         # Dash-dot
-    }
-
-    for col in dd_data.columns:
-        linestyle = line_styles.get(col, '-')
-        linewidth = 3 if col == 'Portfolio' else 2
-        ax.plot(dd_data.index, dd_data[col], label=col,
-               linewidth=linewidth, color=COLORS.get(col, 'gray'), linestyle=linestyle)
-
-    portfolio_col = 'Portfolio' if 'Portfolio' in dd_data.columns else dd_data.columns[0]
-    ax.fill_between(dd_data.index, 0, dd_data[portfolio_col], alpha=0.2, color=COLORS.get(portfolio_col, COLORS['Portfolio']))
-
-    ax.set_title('Drawdown Comparison', fontsize=16, fontweight='bold')
-    ax.set_xlabel('Date', fontsize=12)
-    ax.set_ylabel('Drawdown (%)', fontsize=12)
-    ax.legend(loc='best', fontsize=11)
-    ax.grid(True, alpha=0.3)
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m'))
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.savefig(os.path.join(chart_dir, '7_drawdown.png'), dpi=150, bbox_inches='tight')
-    plt.close()
-    print("  ✓ Drawdown chart")
 
     print(f"\n✓ All charts saved to {chart_dir}/")
     return True
@@ -317,6 +404,11 @@ def generate_html_dashboard(html_dir):
     capture_df = pd.read_csv(os.path.join(html_dir, "capture_stats.csv"))
     summary_df = pd.read_csv(os.path.join(html_dir, "summary_stats.csv"))
     weights_df = pd.read_csv(os.path.join(html_dir, "weights_used.csv"), index_col=0)
+
+    # Read resilience data files
+    drawdown_df = pd.read_csv(os.path.join(html_dir, "drawdown_stats.csv"))
+    resilience_df = pd.read_csv(os.path.join(html_dir, "resilience_stats.csv"))
+    recovery_comparison_df = pd.read_csv(os.path.join(html_dir, "recovery_comparison.csv"))
 
     # Extract metadata from summary
     num_positions = len(weights_df)
@@ -546,7 +638,167 @@ def generate_html_dashboard(html_dir):
             <img src="charts/1_portfolio_composition.png" alt="Portfolio Composition">
         </div>
 
-        <h2>🎯 Capture Ratios</h2>
+        <h2>🛡️ RESILIENCE ANALYSIS</h2>
+        <p style="margin-bottom: 20px; color: #666; font-size: 1.05em;"><strong>Resilience measures how quickly your portfolio recovers from drawdowns - more important than correlation alone.</strong></p>"""
+
+    # Add Drawdown Comparison Table
+    html_content += """
+        <h3 style="color: #029E73; margin-top: 30px;">Maximum Drawdown Comparison</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Asset</th>
+                    <th>Max Drawdown</th>
+                    <th>Trough Date</th>
+                    <th>Duration (days)</th>
+                    <th>Significant Drawdowns (>10%)</th>
+                </tr>
+            </thead>
+            <tbody>"""
+
+    for _, row in drawdown_df.iterrows():
+        asset = row['Asset']
+        max_dd = row['Max_Drawdown_Pct'] * 100
+        dd_date = row['Max_Drawdown_Date']
+        duration = int(row['Max_DD_Duration_Days'])
+        num_significant = int(row['Num_Drawdowns_Over_10pct'])
+
+        row_class = 'good' if asset == 'Portfolio' and abs(max_dd) < abs(drawdown_df[drawdown_df['Asset']=='SPY']['Max_Drawdown_Pct'].values[0] * 100) else ''
+
+        html_content += f"""
+                <tr class="{row_class}">
+                    <td><strong>{asset}</strong></td>
+                    <td class="metric-value">{max_dd:.2f}%</td>
+                    <td>{dd_date}</td>
+                    <td>{duration}</td>
+                    <td>{num_significant}</td>
+                </tr>"""
+
+    html_content += """
+            </tbody>
+        </table>
+
+        <h3 style="color: #029E73; margin-top: 30px;">Recovery Speed & Resilience Metrics</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Asset</th>
+                    <th>Avg Recovery Time (days)</th>
+                    <th>Recovery Speed (%/day)</th>
+                </tr>
+            </thead>
+            <tbody>"""
+
+    for _, row in resilience_df.iterrows():
+        asset = row['Asset']
+        recovery_days = row['Avg_Recovery_Days']
+        recovery_speed = row['Avg_Recovery_Speed_Pct_Per_Day'] * 100
+
+        row_class = 'good' if asset == 'Portfolio' else ''
+
+        recovery_str = f"{recovery_days:.0f}" if not pd.isna(recovery_days) else "N/A"
+        speed_str = f"{recovery_speed:.3f}%" if not pd.isna(recovery_speed) else "N/A"
+
+        html_content += f"""
+                <tr class="{row_class}">
+                    <td><strong>{asset}</strong></td>
+                    <td class="metric-value">{recovery_str}</td>
+                    <td class="metric-value">{speed_str}</td>
+                </tr>"""
+
+    html_content += """
+            </tbody>
+        </table>
+
+        <h3 style="color: #029E73; margin-top: 30px;">Portfolio Resilience vs Benchmarks</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Benchmark</th>
+                    <th>Recovery Time Ratio</th>
+                    <th>Recovery Speed Ratio</th>
+                    <th>Max Drawdown Ratio</th>
+                    <th>Interpretation</th>
+                </tr>
+            </thead>
+            <tbody>"""
+
+    for _, row in recovery_comparison_df.iterrows():
+        benchmark = row['Benchmark']
+        recovery_time_ratio = row['Recovery_Time_Ratio']
+        recovery_speed_ratio = row['Recovery_Speed_Ratio']
+        dd_ratio = row['Max_Drawdown_Ratio']
+
+        # Lower recovery time = better, higher recovery speed = better, lower dd = better
+        recovery_time_str = f"{recovery_time_ratio:.2f}x" if not pd.isna(recovery_time_ratio) else "N/A"
+        recovery_speed_str = f"{recovery_speed_ratio:.2f}x" if not pd.isna(recovery_speed_ratio) else "N/A"
+        dd_str = f"{dd_ratio:.2f}x" if not pd.isna(dd_ratio) else "N/A"
+
+        if not pd.isna(recovery_time_ratio):
+            if recovery_time_ratio < 1.0:
+                interpretation = f"Portfolio recovers {1/recovery_time_ratio:.1f}x faster than {benchmark}"
+                row_class = 'good'
+            else:
+                interpretation = f"Portfolio recovers {recovery_time_ratio:.1f}x slower than {benchmark}"
+                row_class = 'moderate'
+        else:
+            interpretation = "Insufficient data"
+            row_class = ''
+
+        html_content += f"""
+                <tr class="{row_class}">
+                    <td><strong>{benchmark}</strong></td>
+                    <td class="metric-value">{recovery_time_str}</td>
+                    <td class="metric-value">{recovery_speed_str}</td>
+                    <td class="metric-value">{dd_str}</td>
+                    <td>{interpretation}</td>
+                </tr>"""
+
+    html_content += """
+            </tbody>
+        </table>
+
+        <div class="insight-box">
+            <h4>Why Resilience Matters More Than Correlation</h4>
+            <p><strong>Key Insight:</strong> Correlation tells you if your portfolio moves with the market. Resilience tells you how quickly you recover when it doesn't.</p>
+            <ul>
+                <li><strong>Recovery Time:</strong> How long it takes to bounce back from a drawdown. Lower is better.</li>
+                <li><strong>Recovery Speed:</strong> How fast you recover each day (% per day). Higher is better.</li>
+                <li><strong>Max Drawdown Ratio < 1.0:</strong> Your portfolio had a shallower max loss than the benchmark.</li>
+                <li><strong>Recovery Time Ratio < 1.0:</strong> Your portfolio bounced back faster than the benchmark.</li>
+            </ul>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-container">
+                <h3>2. Recovery Time Comparison</h3>
+                <img src="charts/2_recovery_time.png" alt="Recovery Time">
+                <div class="explanation-box">
+                    <p>Lower bars = faster recovery = better resilience. If your portfolio bar is lower than benchmark bars, you recover from losses faster.</p>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <h3>3. Resilience Scorecard</h3>
+                <img src="charts/3_resilience_scorecard.png" alt="Resilience Scorecard">
+                <div class="explanation-box">
+                    <p>Both metrics should be lower for better resilience: shallower drawdowns and faster recovery indicate a more resilient portfolio.</p>
+                </div>
+            </div>
+
+            <div class="chart-container">
+                <h3>4. Drawdown Analysis</h3>
+                <img src="charts/4_drawdown.png" alt="Drawdown">
+                <div class="explanation-box">
+                    <p>Watch how quickly the portfolio line (blue) returns to 0% compared to benchmarks. Faster returns to 0% = better resilience.</p>
+                </div>
+            </div>
+        </div>
+
+        <h2 style="margin-top: 60px;">📊 CORRELATION ANALYSIS</h2>
+        <p style="margin-bottom: 20px; color: #666; font-size: 1.05em;">These metrics show how your portfolio moves <em>with</em> the market - useful context, but secondary to resilience.</p>
+
+        <h3 style="color: #0173B2; margin-top: 30px;">Capture Ratios</h3>
         <table>
             <thead>
                 <tr>
@@ -711,28 +963,21 @@ def generate_html_dashboard(html_dir):
             </ul>
         </div>
 
-        <h2>📊 Visualizations</h2>
-
         <div class="charts-grid">
             <div class="chart-container">
-                <h3>2. Cumulative Returns</h3>
-                <img src="charts/2_cumulative_returns.png" alt="Cumulative Returns">
+                <h3>5. Capture Ratios Comparison</h3>
+                <img src="charts/5_capture_ratios.png" alt="Capture Ratios">
             </div>
 
             <div class="chart-container">
-                <h3>3. Capture Ratios Comparison</h3>
-                <img src="charts/3_capture_ratios.png" alt="Capture Ratios">
-            </div>
-
-            <div class="chart-container">
-                <h3>4. Hit Rates on Down Days</h3>
+                <h3>6. Hit Rates on Down Days</h3>
 
                 <div class="explanation-box">
                     <p><strong>Reading the Chart:</strong> Each bar shows the percentage of days the portfolio was non-negative (≥0%) when that benchmark declined. Higher bars indicate stronger downside protection.</p>
                     <p><strong>Baseline:</strong> Random chance would yield ~50%. Values below 50% indicate the portfolio tends to move with the benchmark (positive correlation), but may decline less on average.</p>
                 </div>
 
-                <img src="charts/4_hit_rates.png" alt="Hit Rates">
+                <img src="charts/6_hit_rates.png" alt="Hit Rates">
 
                 <div class="insight-box">
                     <h4>Key Insights</h4>
@@ -744,16 +989,25 @@ def generate_html_dashboard(html_dir):
                     </ul>
                 </div>
             </div>
+        </div>
+
+        <h2 style="margin-top: 60px;">📈 ADDITIONAL VISUALIZATIONS</h2>
+
+        <div class="charts-grid">
+            <div class="chart-container">
+                <h3>7. Cumulative Returns</h3>
+                <img src="charts/7_cumulative_returns.png" alt="Cumulative Returns">
+            </div>
 
             <div class="chart-container">
-                <h3>5. Return Distribution Analysis</h3>
+                <h3>8. Return Distribution Analysis</h3>
 
                 <div class="explanation-box">
                     <p><strong>Reading the Chart:</strong> Box plots show the distribution of daily returns. The box contains 50% of returns (25th to 75th percentile). Whiskers show the typical range. Dots indicate outliers.</p>
                     <p>A narrower box indicates more consistent daily returns. A wider box indicates more variable daily returns.</p>
                 </div>
 
-                <img src="charts/5_return_distributions.png" alt="Return Distributions">
+                <img src="charts/8_return_distributions.png" alt="Return Distributions">
 
                 <div class="insight-box">
                     <h4>Understanding Return Distributions</h4>
@@ -768,7 +1022,12 @@ def generate_html_dashboard(html_dir):
             </div>
 
             <div class="chart-container">
-                <h3>6. Volatility Analysis</h3>"""
+                <h3>9. Average Returns: Up vs Down Days</h3>
+                <img src="charts/9_avg_returns_up_down.png" alt="Average Returns">
+            </div>
+
+            <div class="chart-container">
+                <h3>Volatility Analysis</h3>"""
 
     # Calculate volatility statistics from cumulative returns
     cum_df_data = pd.read_csv(os.path.join(html_dir, "cumulative_returns.csv"), index_col=0)
@@ -852,29 +1111,6 @@ def generate_html_dashboard(html_dir):
                         <li>Higher volatility indicates more daily fluctuation but does not necessarily mean higher downside risk (see downside capture ratios).</li>
                     </ul>
                 </div>
-            </div>
-
-            <div class="chart-container">
-                <h3>7. Average Returns: Up vs Down Days</h3>
-                <img src="charts/6_avg_returns_up_down.png" alt="Average Returns">
-            </div>
-
-            <div class="chart-container">
-                <h3>8. Drawdown Comparison</h3>
-
-                <div class="explanation-box">
-                    <p><strong>What is Drawdown?</strong> Drawdown measures how far below the previous high point (peak) an investment has fallen. It's calculated as: (Current Value - Running Maximum) / Running Maximum × 100%</p>
-                    <p><strong>Reading the Chart:</strong></p>
-                    <ul>
-                        <li><strong>0% (top line):</strong> Portfolio is at a new all-time high</li>
-                        <li><strong>Negative values:</strong> Portfolio is below its previous peak (e.g., -15% means 15% below highest value)</li>
-                        <li><strong>Deeper dips:</strong> Larger losses from peak values</li>
-                        <li><strong>Recovery:</strong> Line moving back toward 0% shows recovery toward previous highs</li>
-                    </ul>
-                    <p><strong>What It Tells You:</strong> Shows pain tolerance (unrealized losses during downturns), recovery speed (how quickly you bounce back), and relative performance (whether your portfolio experiences smaller or larger drawdowns than benchmarks). Shallower drawdowns indicate better downside protection.</p>
-                </div>
-
-                <img src="charts/7_drawdown.png" alt="Drawdown">
             </div>
         </div>
 
